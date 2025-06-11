@@ -2,7 +2,7 @@ Devvit.configure({redditAPI: true,
                   redis: true,
                   userActions: false });
 
-import { Devvit } from '@devvit/public-api';
+import { Devvit, SettingScope, TriggerContext} from '@devvit/public-api';
 type positionRange = 1|2|3|4;
 
 type timedHighlight = {
@@ -14,7 +14,7 @@ Devvit.addTrigger({
   event: 'PostDelete',
   onEvent: async (event, context) => {
     const {redis} = context;
-    console.log(`Received PostDelete event:\n${JSON.stringify(event)}`);
+    console.log(`Received PostDelete event for post: \n${event.postId}`);
     var postHash = await context.redis.hGet('timedHighlights',event.postId);
     if( postHash && postHash.length > 0 ) { //Delete respective hash if it exists for the deleted post.
       context.redis.hDel('timedHighlights', [event.postId]);
@@ -22,6 +22,62 @@ Devvit.addTrigger({
     }
   },
 });
+
+Devvit.addTrigger({
+  event:'AppInstall',
+  onEvent: async (event, context) => {
+    await addHighlightsScheduledJob(context);
+  },
+});
+
+Devvit.addTrigger({
+  event:'AppUpgrade',
+  onEvent: async (event, context) => {
+    await addHighlightsScheduledJob(context);
+  },
+});
+
+async function addHighlightsScheduledJob(context:TriggerContext) {  
+  const oldJobId = (await context.redis.get('removeHighlightsJobId')) || '0';
+  const scheduledJobs = await context.scheduler.listJobs();
+
+  for( const key in scheduledJobs ){
+    if ( scheduledJobs[key].id == oldJobId) {
+      await context.scheduler.cancelJob(oldJobId);
+    }
+  }
+  console.log("Adding a new scheduled job for removing expired highlights.");
+  const jobId = await context.scheduler.runJob({
+  name: 'remove-expired-highlights',
+  cron: '0 * * * *', //Runs every hour once.
+  });
+  await context.redis.set('removeHighlightsJobId', jobId);
+}
+
+Devvit.addSettings([
+  {
+    type: 'boolean',
+    name: 'addInformationalComment',
+    label: 'Add informational comment on the highlight time-period to the post:',
+    scope: SettingScope.Installation, 
+    defaultValue: true
+  },
+  {
+    type: 'number',
+    name: 'defaultNumberOfDays',
+    label: 'Default number of days for highlights:',
+    scope: SettingScope.Installation,
+    defaultValue: 1,
+    onValidate: (event) => {
+      if (event.value! > 365) {
+        return 'Number too high! Must be lower than 365.';
+      }
+      if (event.value! < 1) {
+        return 'Number too low! Must be at least 1.';
+      }
+    }
+  },
+]);
 
 Devvit.addSchedulerJob({
   name: 'remove-expired-highlights',  
@@ -52,23 +108,22 @@ Devvit.addSchedulerJob({
           catch(err) {
             console.log("There was an error unstickying the post. "+ (err as Error).message);
           }
-
         }
       }
     }
-
+    console.log("Timed-Highlights scheduled cron job ended.");
   },
 });
 
-const highlightsForm = Devvit.createForm(
-  {
+const highlightsInputForm = Devvit.createForm( (data) => {
+  return   {
     title: 'Add to Timed Highlights 📅 📌',
     fields: [
       {
         type: 'number',
         name: 'days',
         label: 'Number of days',
-        defaultValue: 1,
+        defaultValue: data.defaultNumberOfDays,
         required: true,
         helpText: "Number of days to keep in highlights.",
       },
@@ -88,8 +143,9 @@ const highlightsForm = Devvit.createForm(
       }
     ],
     acceptLabel: 'Submit',
+  };
   },
-  async(event, context) => {
+    async(event, context) => {
     if( event.values.days > 365  || event.values.days < 1 ) { //Validate input for days.
       context.ui.showToast({
         text: `Please enter a value between 1 and 365 for days. Submission failed.`,
@@ -101,7 +157,6 @@ const highlightsForm = Devvit.createForm(
     var givenPosition = '1';
     if( event.values.position ) {
       givenPosition = event.values.position[0];
-      console.log("Position given:"+ event.values.position[0]);
     }
     
     var pos:positionRange;
@@ -130,7 +185,6 @@ const highlightsForm = Devvit.createForm(
 );
 
 async function createOrUpdateHighlight(context:Devvit.Context, days:number, position:positionRange) {
-
   var postId = context.postId ?? 'defaultPostId';
   var succeeded = true;
 
@@ -157,14 +211,14 @@ async function createOrUpdateHighlight(context:Devvit.Context, days:number, posi
       `Post has been highlighted/sticked for ${days} days.`
     );
 
-    const oldJobId = await context.redis.get('removeHighlightsJobId');
+    const addInformationalComment = await context.settings.get('addInformationalComment');
 
-    if( !oldJobId || oldJobId.length == 0 ) {//Add cron job to remove highlights if it does not exist already.
-      const jobId = await context.scheduler.runJob({
-      name: 'remove-expired-highlights',
-        cron: '0 * * * *', //Runs every hour once.
+    if( addInformationalComment ) {
+      const currentUsrname = await context.reddit.getCurrentUsername();
+      const metaComment = await context.reddit.submitComment({
+        id: `${postId}`,
+        text: "This post has been added to Timed Highlights from "+dateNow.toISOString()+" to "+ expireDate.toISOString()+" by "+currentUsrname
       });
-      await context.redis.set('removeHighlightsJobId', jobId);
     }
 
     const subreddit = await context.reddit.getCurrentSubreddit();
@@ -180,8 +234,9 @@ async function createOrUpdateHighlight(context:Devvit.Context, days:number, posi
 Devvit.addMenuItem({
   location: 'post',
   label: 'Add to Timed Highlights 📅 📌',
-  onPress: (event, context) => {
-    context.ui.showForm(highlightsForm);
+  onPress: async(event, context) => {
+    const defaultNumberOfDays = await context.settings.get('defaultNumberOfDays') ?? 1;
+    context.ui.showForm(highlightsInputForm, {defaultNumberOfDays: defaultNumberOfDays});
   },
   forUserType: 'moderator'
 });

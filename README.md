@@ -14,6 +14,13 @@ Moderators can install the app to their subreddit by going to [https://developer
 2) You will be presented with a form to enter the number of days to keep it in highlights, and the position for the highlight.
 3) After you submit the form, the post will be added as highlight in your community, and it would be removed from highlights after the specified number of days are elapsed. Please make sure to refresh the page manually
 
+### App Settings
+There are two settings available in the app. 
+1) Flag to enable/disable adding informational comment on the highlight time-period to the post.
+2) Default number of days to be shown in the Timed-Highlight input form.
+
 ## Changelog
 * 0.0.1
   * Initial version with feature to add posts as Timed-Highlights to the community.
+* 0.0.3
+  * Add settings to configure the default number of days to show in form, and to enable/disable informational comment from the app for posts.
