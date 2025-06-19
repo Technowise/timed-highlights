@@ -55,14 +55,7 @@ async function addHighlightsScheduledJob(context:TriggerContext) {
 }
 
 Devvit.addSettings([
-  {
-    type: 'boolean',
-    name: 'addInformationalComment',
-    label: 'Add informational comment on the highlight time-period to the post:',
-    scope: SettingScope.Installation, 
-    defaultValue: true
-  },
-  {
+    {
     type: 'number',
     name: 'defaultNumberOfDays',
     label: 'Default number of days for highlights:',
@@ -76,6 +69,21 @@ Devvit.addSettings([
         return 'Number too low! Must be at least 1.';
       }
     }
+  },
+  {
+    type: 'boolean',
+    name: 'addInformationalComment',
+    label: 'Add informational comment on the highlight time-period to the post:',
+    scope: SettingScope.Installation, 
+    defaultValue: true
+  },
+
+  {
+    type: 'boolean',
+    name: 'notifyModeratorsOnHighlightRemoval',
+    label: 'Notify moderators on highlight removal through mod-mail:',
+    scope: SettingScope.Installation, 
+    defaultValue: true
   },
 ]);
 
@@ -95,9 +103,17 @@ Devvit.addSchedulerJob({
     
           try {
             const post = await context.reddit.getPostById(HLObj.postId);
+            const notifyModeratorsOnHighlightRemoval = await context.settings.get('notifyModeratorsOnHighlightRemoval');
             if( post.isStickied() ) {
               await post.unsticky();
               console.log("Unstickied post: "+HLObj.postId);
+              if( notifyModeratorsOnHighlightRemoval) {
+                const conversationId = await context.reddit.modMail.createModNotification({  
+                  subject: 'Timed-Highlights post removal',
+                  bodyMarkdown: 'A post has been removed from Timed-Highlights as time period for highlight has elapsed. \n\n Post title: '+post.title+'\n\n Post link: '+post.permalink+'\n\n Removal time: '+ dateNow.toISOString() ,
+                  subredditId: context.subredditId,
+                });
+              }
             }
 
             var removedItemsCount = await context.redis.hDel('timedHighlights', [HLObj.postId]);
@@ -217,7 +233,7 @@ async function createOrUpdateHighlight(context:Devvit.Context, days:number, posi
       const currentUsrname = await context.reddit.getCurrentUsername();
       const metaComment = await context.reddit.submitComment({
         id: `${postId}`,
-        text: "This post has been added to Timed Highlights from "+dateNow.toISOString()+" to "+ expireDate.toISOString()+" by "+currentUsrname
+        text: 'This post has been added to Timed Highlights from '+dateNow.toISOString()+' to '+ expireDate.toISOString()+' by '+currentUsrname+'\n\n **Timed Highlights app** ( https://developers.reddit.com/apps/timed-highlights ) '
       });
     }
 

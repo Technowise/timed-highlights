@@ -24,3 +24,5 @@ There are two settings available in the app.
   * Initial version with feature to add posts as Timed-Highlights to the community.
 * 0.0.3
   * Add settings to configure the default number of days to show in form, and to enable/disable informational comment from the app for posts.
+* 0.0.4
+  * Add mod-mail notification on removal of post from highlight, and add configuration option to enable/disable notification.
