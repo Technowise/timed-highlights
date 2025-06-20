@@ -16,8 +16,9 @@ Moderators can install the app to their subreddit by going to [https://developer
 
 ### App Settings
 There are two settings available in the app. 
-1) Flag to enable/disable adding informational comment on the highlight time-period to the post.
-2) Default number of days to be shown in the Timed-Highlight input form.
+1) Default number of days to be shown in the Timed-Highlight input form.
+1) Flag to enable/disable adding of informational comment on the highlight time-period to the post.
+3) Flag to enable/disable mod-mail notification on removal of the post from highlight.
 
 ## Changelog
 * 0.0.1
