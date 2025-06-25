@@ -27,3 +27,5 @@ There are two settings available in the app.
   * Add settings to configure the default number of days to show in form, and to enable/disable informational comment from the app for posts.
 * 0.0.4
   * Add mod-mail notification on removal of post from highlight, and add configuration option to enable/disable notification.
+* 0.0.5
+  * Added hours option for highlights - includes form field, and respective settings field for default number of hours.

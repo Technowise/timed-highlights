@@ -49,16 +49,17 @@ async function addHighlightsScheduledJob(context:TriggerContext) {
   console.log("Adding a new scheduled job for removing expired highlights.");
   const jobId = await context.scheduler.runJob({
   name: 'remove-expired-highlights',
+  //cron: '* * * * *', //Runs every minute - Only use this for testing.
   cron: '0 * * * *', //Runs every hour once.
   });
   await context.redis.set('removeHighlightsJobId', jobId);
 }
 
 Devvit.addSettings([
-    {
+  {
     type: 'number',
     name: 'defaultNumberOfDays',
-    label: 'Default number of days for highlights:',
+    label: 'Default number of days:',
     scope: SettingScope.Installation,
     defaultValue: 1,
     onValidate: (event) => {
@@ -67,6 +68,21 @@ Devvit.addSettings([
       }
       if (event.value! < 1) {
         return 'Number too low! Must be at least 1.';
+      }
+    }
+  },
+  {
+    type: 'number',
+    name: 'defaultNumberOfHours',
+    label: 'Default number of hours:',
+    scope: SettingScope.Installation,
+    defaultValue: 0,
+    onValidate: (event) => {
+      if (event.value! > 23) {
+        return 'Number too high! Must be lower than 24.';
+      }
+      if (event.value! < 0) {
+        return 'Hours value cannot be negative.';
       }
     }
   },
@@ -110,7 +126,7 @@ Devvit.addSchedulerJob({
               if( notifyModeratorsOnHighlightRemoval) {
                 const conversationId = await context.reddit.modMail.createModNotification({  
                   subject: 'Timed-Highlights post removal',
-                  bodyMarkdown: 'A post has been removed from Timed-Highlights as time period for highlight has elapsed. \n\n Post title: '+post.title+'\n\n Post link: '+post.permalink+'\n\n Removal time: '+ dateNow.toISOString() ,
+                  bodyMarkdown: 'A post has been removed from Timed-Highlights as time period for highlight has elapsed. \n\n Post title: '+post.title+'\n\n Post link: '+post.permalink+'\n\n Removal time: '+ dateNow.toUTCString() ,
                   subredditId: context.subredditId,
                 });
               }
@@ -144,6 +160,14 @@ const highlightsInputForm = Devvit.createForm( (data) => {
         helpText: "Number of days to keep in highlights.",
       },
       {
+        type: 'number',
+        name: 'hours',
+        label: 'Number of hours',
+        defaultValue: data.defaultNumberOfHours,
+        required: true,
+        helpText: "Number of hours to keep in highlights.",
+      },
+      {
         type: 'select',
         name: 'position',
         label: 'Position',
@@ -161,10 +185,27 @@ const highlightsInputForm = Devvit.createForm( (data) => {
     acceptLabel: 'Submit',
   };
   },
-    async(event, context) => {
-    if( event.values.days > 365  || event.values.days < 1 ) { //Validate input for days.
+  async(event, context) => {
+
+    if( event.values.hours < 0  || event.values.hours > 23 ) {
       context.ui.showToast({
-        text: `Please enter a value between 1 and 365 for days. Submission failed.`,
+        text: `Value for hours must be between 0 and 23. Submission failed.`,
+        appearance: 'neutral',
+      });
+      return;
+    }
+    else   
+    if( event.values.days == 0  && event.values.hours == 0 ) {
+      context.ui.showToast({
+        text: `Both days and hours can't be zero. Submission failed.`,
+        appearance: 'neutral',
+      });
+      return;
+    }
+    else
+    if( event.values.days > 365  || event.values.days < 0 ) { //Validate input for days.
+      context.ui.showToast({
+        text: `Please enter a value between 0 and 365 for days. Submission failed.`,
         appearance: 'neutral',
       });
       return;
@@ -196,11 +237,11 @@ const highlightsInputForm = Devvit.createForm( (data) => {
         break;   
     }
 
-    await createOrUpdateHighlight ( context, event.values.days, pos)
+    await createOrUpdateHighlight (context, event.values.days, event.values.hours, pos)
   }
 );
 
-async function createOrUpdateHighlight(context:Devvit.Context, days:number, position:positionRange) {
+async function createOrUpdateHighlight(context:Devvit.Context, days:number, hours:number, position:positionRange) {
   var postId = context.postId ?? 'defaultPostId';
   var succeeded = true;
 
@@ -217,14 +258,17 @@ async function createOrUpdateHighlight(context:Devvit.Context, days:number, posi
   
   let dateNow = new Date();
   let daysOffsetMs = 86400000 * days;
-  let expireDate = new Date( dateNow.getTime() + daysOffsetMs);
+  //let hoursOffsetMs = 60000 * hours //set minutes instead of hours - Only use this for testing
+  let hoursOffsetMs = 3600000 * hours
+  
+  let expireDate = new Date( dateNow.getTime() + daysOffsetMs + hoursOffsetMs);
 
   if( succeeded ) {
     const newHL:timedHighlight = {postId: postId, expireTime:expireDate.getTime() };
     await context.redis.hSet('timedHighlights', { [postId]: JSON.stringify(newHL) });
 
     context.ui.showToast(
-      `Post has been highlighted/sticked for ${days} days.`
+      `Post has been highlighted/sticked for ${days} days and ${hours} hours.`
     );
 
     const addInformationalComment = await context.settings.get('addInformationalComment');
@@ -233,7 +277,7 @@ async function createOrUpdateHighlight(context:Devvit.Context, days:number, posi
       const currentUsrname = await context.reddit.getCurrentUsername();
       const metaComment = await context.reddit.submitComment({
         id: `${postId}`,
-        text: 'This post has been added to Timed Highlights from '+dateNow.toISOString()+' to '+ expireDate.toISOString()+' by '+currentUsrname+'\n\n **Timed Highlights app** ( https://developers.reddit.com/apps/timed-highlights ) '
+        text: 'This post has been added to Timed Highlights from '+dateNow.toUTCString()+' to '+ expireDate.toUTCString()+' by '+currentUsrname+'\n\n **Timed Highlights app** ( https://developers.reddit.com/apps/timed-highlights ) '
       });
     }
 
@@ -252,7 +296,8 @@ Devvit.addMenuItem({
   label: 'Add to Timed Highlights 📅 📌',
   onPress: async(event, context) => {
     const defaultNumberOfDays = await context.settings.get('defaultNumberOfDays') ?? 1;
-    context.ui.showForm(highlightsInputForm, {defaultNumberOfDays: defaultNumberOfDays});
+    const defaultNumberOfHours = await context.settings.get('defaultNumberOfHours') ?? 0;
+    context.ui.showForm(highlightsInputForm, {defaultNumberOfDays: defaultNumberOfDays, defaultNumberOfHours: defaultNumberOfHours});
   },
   forUserType: 'moderator'
 });
