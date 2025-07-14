@@ -28,3 +28,5 @@ There are two settings available in the app.
   * Add mod-mail notification on removal of post from highlight, and add configuration option to enable/disable notification.
 * 0.0.5
   * Added hours option for highlights (includes form field, and respective settings field for default number of hours).
+* 0.0.6
+  * Update the devvit public-api package version to 0.11.18
